@@ -31,12 +31,11 @@ class ModelArgs:
     fm_lambda: float = 5.0           # Factor de peso para la pérdida de Flow Matching
     continuous_dim: int = 8          # Dimensión de los vectores de parche (VAE latent dim)
 
-# Clase básica para VAE (simplificada para este ejemplo)
+# Clase básica para VAE 
 class VAE(nn.Module):
     def __init__(self, latent_dim=8):
         super().__init__()
-        # En una implementación real, esto sería más complejo
-        # y tendría encoder y decoder CNN completos
+        
         
         # Encoder (simplificado)
         self.encoder = nn.Sequential(
@@ -98,7 +97,7 @@ class PatchDecoder(nn.Module):
         self.latent_dim = latent_dim
         self.linear = nn.Linear(model_dim, latent_dim * patch_size * patch_size)
         
-        # En model.py, clase PatchDecoder, método forward
+       
     def forward(self, x, H, W):
         """Convierte vectores del transformador en parches latentes con redimensionamiento correcto"""
         B, L, _ = x.shape
@@ -705,7 +704,6 @@ class TransfusionTransformer(nn.Module):
                flow_x1: Optional[torch.Tensor]=None,
                flow_t: Optional[torch.Tensor]=None):
         """
-        Forward pass completo para Transfusion.
         tokens: Índices de tokens (texto + BOI/EOI)
         labels: Etiquetas para pérdida de LM
         image_latents: Diccionario que mapea posición a tensor latente de imagen
