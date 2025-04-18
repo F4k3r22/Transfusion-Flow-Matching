@@ -52,6 +52,7 @@ class TransfusionTrainer:
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
         
         # Mixed precision para ahorro de memoria
+        args.mixed_precision = False
         self.scaler = GradScaler() if args.mixed_precision else None
         
         # Crear directorios de salida

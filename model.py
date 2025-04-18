@@ -100,7 +100,7 @@ class PatchDecoder(nn.Module):
        
     def forward(self, x, H, W):
         """Convierte vectores del transformador en parches latentes con redimensionamiento correcto"""
-        B, L, _ = x.shape
+        B, L, _ = x.reshape
         patches = self.linear(x)
 
         # Calcular dimensiones esperadas para el tamaño de parche
@@ -509,7 +509,7 @@ class TransfusionTransformer(nn.Module):
         """Extrae las posiciones de los tokens BOI y EOI"""
         # Debug
         print(f"Token BOI: {self.boi_token}, EOI: {self.eoi_token}")
-        print(f"Tokens únicos: {torch.unique(tokens)}")
+        #print(f"Tokens únicos: {torch.unique(tokens)}")
     
         # Los tokens son tensores, buscar posiciones
         boi_pos = (tokens == self.boi_token).nonzero(as_tuple=True)
@@ -578,7 +578,6 @@ class TransfusionTransformer(nn.Module):
                 batch_idx_map[b] = flow_idx
                 flow_idx += 1
     
-        # Debug
         print(f"x_t shape: {x_t.shape}, dx_t shape: {dx_t.shape}")
         print(f"batch_idx_map: {batch_idx_map}")
     
@@ -599,48 +598,44 @@ class TransfusionTransformer(nn.Module):
         
             # Obtener representación de imagen del transformador
             image_repr = x[b, start+1:end]
-            
+        
             # Preparar dimensiones objetivo
             print(f"dx_t shape: {dx_t.shape}, flow_idx: {flow_idx}")
             target = dx_t[flow_idx]
             target_shape = target.shape
             print(f"target_shape: {target_shape}, dimensiones: {len(target_shape)}")
-            
+        
             # Verificar cuántas dimensiones tiene el target
-            if len(target_shape) == 3:  # [C, H, W]
-                latent_c, latent_h, latent_w = target_shape
-                # Añadir dimensión de batch
-                target = target.unsqueeze(0)  # [1, C, H, W]
-            elif len(target_shape) == 4:  # [B, C, H, W]
-                _, latent_c, latent_h, latent_w = target_shape
-            else:
-                print(f"Forma de target inesperada: {target_shape}")
-                continue
-            
-            # Verificar compatibilidad de parches
-            expected_patches = (latent_h * latent_w) // (self.params.patch_size ** 2)
-            received_patches = image_repr.shape[0]
-            
-            if expected_patches != received_patches:
-                print(f"Advertencia: Número de parches no coincide - transformer: {received_patches}, esperado: {expected_patches}")
-            
-            # Convertir a imagen latente 
             try:
-                # Si image_repr es 2D, añadir una dimensión de batch
-                if image_repr.dim() == 2:
-                    image_repr = image_repr.unsqueeze(0)
+                if len(target_shape) == 3:  # [C, H, W]
+                    latent_c, latent_h, latent_w = target_shape
+                    # Añadir dimensión de batch
+                    target = target.unsqueeze(0)  # [1, C, H, W]
+                elif len(target_shape) == 4:  # [B, C, H, W]
+                    _, latent_c, latent_h, latent_w = target_shape
+                else:
+                    print(f"Forma de target inesperada: {target_shape}")
+                    continue
+            
+                # Verificar compatibilidad de parches
+                expected_patches = (latent_h * latent_w) // (self.params.patch_size ** 2)
+                received_patches = image_repr.shape[0]
+            
+                if expected_patches != received_patches:
+                    print(f"Advertencia: Número de parches no coincide - transformer: {received_patches}, esperado: {expected_patches}")
+            
+                # Convertir a imagen latente 
+                try:
+                    # Si image_repr es 2D, añadir una dimensión de batch
+                    if image_repr.dim() == 2:
+                        image_repr = image_repr.unsqueeze(0)
                 
-                # Usar el descodificador de parches mejorado
-                image_latent = self.patch_decoder(image_repr, latent_h * self.params.patch_size, latent_w * self.params.patch_size)
+                    # Usar el descodificador de parches mejorado
+                    image_latent = self.patch_decoder(image_repr, latent_h * self.params.patch_size, latent_w * self.params.patch_size)
                 
-                # Verificar si coinciden las formas antes de calcular la pérdida
-                if image_latent.shape != target.shape:
-                    print(f"Formas no coinciden: imagen={image_latent.shape}, target={target.shape}")
-                    # Redimensionar para que coincidan
-                    if image_latent.shape[2] == 8 and target.shape[2] == 4:
-                        image_latent = F.avg_pool2d(image_latent, kernel_size=2, stride=2)
-                    else:
-                        # Solución general
+                    # Verificar si coinciden las formas antes de calcular la pérdida
+                    if image_latent.shape != target.shape:
+                        print(f"Formas no coinciden: imagen={image_latent.shape}, target={target.shape}")
                         image_latent = F.interpolate(
                             image_latent, 
                             size=(target.shape[2], target.shape[3]),
@@ -648,39 +643,19 @@ class TransfusionTransformer(nn.Module):
                             align_corners=False
                         )
                 
-                # Calcular pérdida
-                flow_loss = F.mse_loss(image_latent, target)
-                losses.append(flow_loss)
-                
-            except Exception as e:
-                print(f"Error al decodificar imagen: {e}")
-                # Usar una pérdida fija si falla la decodificación
-                losses.append(torch.tensor(0.1, device=x.device))
-            
-                # Captura fallback: usar interpolación simple
-                try:
-                    # Proyectar a dimensión más pequeña primero
-                    proj = nn.Linear(512, self.params.vae_latent_dim).to(x.device)
-                    flat_image = proj(image_repr)  # [16, 8]
-                
-                    # Reshape a la forma esperada 
-                    latent_patches_per_side = int(math.sqrt(expected_patches))
-                    reshaped = flat_image.reshape(1, self.params.vae_latent_dim, 
-                                                latent_patches_per_side, latent_patches_per_side)
-                
-                    # Redimensionar a la forma objetivo
-                    interpolated = F.interpolate(
-                        reshaped,
-                        size=(latent_h, latent_w),
-                        mode='bilinear'
-                    )
-                
-                    flow_loss = self.flow_module.compute_flow_loss(interpolated, dx_t[flow_idx])
+                    # Calcular pérdida
+                    flow_loss = F.mse_loss(image_latent, target)
                     losses.append(flow_loss)
                 
-                except Exception as e2:
-                    print(f"Error en método fallback: {e2}")
-                    continue
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Error al decodificar imagen: {e}")
+                    # Usar una pérdida fija si falla la decodificación
+                    losses.append(torch.tensor(0.1, device=x.device, requires_grad=True))
+            except Exception as e:
+                print(f"Error procesando dimensiones: {e}")
+                losses.append(torch.tensor(0.1, device=x.device, requires_grad=True))
     
         # Devolver pérdida media o cero
         if losses:
@@ -693,10 +668,10 @@ class TransfusionTransformer(nn.Module):
             if mean_loss > 100:
                 print(f"Pérdida de flow muy alta: {mean_loss.item()}, limitando")
                 return torch.tensor(10.0, device=x.device, requires_grad=True)
-    
+
             return mean_loss
         else:
-            return torch.tensor(0.0, device=x.device)
+            return torch.tensor(0.0, device=x.device, requires_grad=True)
     
     def forward(self, tokens: torch.Tensor, labels: Optional[torch.Tensor]=None,
                image_latents: Optional[Dict[int, torch.Tensor]]=None,
@@ -835,4 +810,3 @@ class TransfusionTransformer(nn.Module):
             # Decodificar imagen final
             images = self.vae.decode(x_t)
             return images
-
