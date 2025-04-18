@@ -320,7 +320,7 @@ class TransfusionDataset(Dataset):
         # Para una imagen de 64x64 con latentes de 8x8 y patch_size=2, necesitamos 16 parches (4x4)
         # Esto debe coincidir con la configuración usada en tu modelo
         img_height, img_width = 64, 64  # Asume tamaño predeterminado de imagen
-        latent_factor = 8  # Factor de compresión de VAE (típico en VAEs para imágenes)
+        latent_factor = 16  # Factor de compresión de VAE (típico en VAEs para imágenes)
         patch_size = 2  # Debe coincidir con params.patch_size en el modelo
     
         # Calcular tamaño de latente y número de parches
