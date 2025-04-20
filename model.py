@@ -100,7 +100,7 @@ class PatchDecoder(nn.Module):
        
     def forward(self, x, H, W):
         """Convierte vectores del transformador en parches latentes con redimensionamiento correcto"""
-        B, L, _ = x.reshape
+        B, L, _ = x.shape
         patches = self.linear(x)
 
         # Calcular dimensiones esperadas para el tamaño de parche
