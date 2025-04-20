@@ -618,7 +618,8 @@ class TransfusionTransformer(nn.Module):
                     continue
             
                 # Verificar compatibilidad de parches
-                expected_patches = (latent_h * latent_w) // (self.params.patch_size ** 2)
+                H0, W0 = x_0.shape[2], x_0.shape[3]
+                expected_patches = (H0 * W0) // (self.params.patch_size ** 2)
                 received_patches = image_repr.shape[0]
             
                 if expected_patches != received_patches:
@@ -743,7 +744,7 @@ class TransfusionTransformer(nn.Module):
         else:
             # Solo inferencia
             logits = self.output(h)
-            return logits
+            return h, logits
     
     def generate_image(self, prompt_tokens, image_size=(256, 256), steps=50):
         """
@@ -756,8 +757,9 @@ class TransfusionTransformer(nn.Module):
             device = prompt_tokens.device
             
             # Añadir token BOI
-            tokens = torch.cat([prompt_tokens, 
-                              torch.full((batch_size, 1), self.boi_token, device=device)], dim=1)
+            boi = torch.full((batch_size, 1), self.boi_token, device=device)
+            eoi = torch.full((batch_size, 1), self.eoi_token, device=device)
+            tokens = torch.cat([prompt_tokens, boi, eoi], dim=1)
             
             # Preparar ruido inicial y puntos de muestreo
             latent_h, latent_w = image_size[0] // (8 * self.params.patch_size), image_size[1] // (8 * self.params.patch_size)
@@ -782,23 +784,20 @@ class TransfusionTransformer(nn.Module):
                     torch.full((batch_size, 1), self.eoi_token, device=device)
                 ], dim=1)
                 
-                # Forward pass del modelo para obtener velocidad implícita
-                h, _ = self.forward(current_tokens)
+                # Preparamos el diccionario de latentes: {posición BOI: x_t}
+                pos_boi = tokens.shape[1] - 2  # índice donde colocamos BOI
+                image_latents = { pos_boi: x_t }
+                # Forward pass INCLUYENDO parches
+                h, _ = self.forward(tokens, image_latents=image_latents)
                 
-                # Extraer representaciones relevantes
-                boi_pos = (current_tokens == self.boi_token).nonzero(as_tuple=True)
-                image_patches = []
+                image_patches = h[:, pos_boi+1 : pos_boi+1 + num_patches, :]
                 
-                for b in range(batch_size):
-                    batch_boi = boi_pos[0] == b
-                    boi_idx = boi_pos[1][batch_boi][0]
-                    image_repr = h[b, boi_idx+1:boi_idx+1+num_patches]
-                    image_patches.append(image_repr)
                 
-                # Convertir a latente
-                image_patches = torch.stack(image_patches, dim=0)
-                x_next = self.patch_decoder(image_patches, latent_h * self.params.patch_size, 
-                                           latent_w * self.params.patch_size)
+                x_next = self.patch_decoder(
+                        image_patches,
+                        latent_h * self.params.patch_size,
+                        latent_w * self.params.patch_size
+                )
                 
                 # Actualizar con paso de solver
                 if i < steps - 1:
